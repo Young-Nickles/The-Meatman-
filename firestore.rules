@@ -50,9 +50,13 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email == "outgame954@gmail.com" && request.auth.token.email_verified == true));
+      return isAuthenticated() && (
+        request.auth.uid == "uVa43jYv4IUCt1XRsSO8inSrtiA2" ||
+        (request.auth.token.email != null && (
+          request.auth.token.email == "outgame954@gmail.com" ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+        ))
+      );
     }
 
     function isValidEmail(email) {
@@ -94,10 +98,19 @@ service cloud.firestore {
 
     function isValidLocation(data) {
       return hasRequiredFields(['latitude', 'longitude', 'address', 'updatedAt']) &&
-             data.latitude is number && data.latitude >= -90 && data.latitude <= 90 &&
-             data.longitude is number && data.longitude >= -180 && data.longitude <= 180 &&
-             data.address is string && data.address.size() > 0 && data.address.size() < 300 &&
+             data.latitude is number && 
+             data.longitude is number && 
+             data.address is string && data.address.size() > 0 &&
              data.updatedAt is timestamp;
+    }
+
+    function isValidReview(data) {
+      return hasRequiredFields(['userId', 'userName', 'rating', 'text', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.userName is string && data.userName.size() > 0 &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 2000 &&
+             data.createdAt is timestamp;
     }
 
     // ===============================================================
@@ -128,6 +141,17 @@ service cloud.firestore {
     match /location/{docId} {
       allow read: if true; // Publicly trackable truck
       allow write: if isAdmin() && isValidLocation(request.resource.data);
+    }
+
+    match /admins/{email} {
+      allow get: if isAuthenticated() && request.auth.token.email == email;
+      allow list, write: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidReview(request.resource.data);
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
     }
   }
 }

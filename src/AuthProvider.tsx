@@ -22,19 +22,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
-        // Check if user document exists, if not create it
-        const userRef = doc(db, 'users', user.uid);
-        const userDoc = await getDoc(userRef);
+        // Check if user is in the admins collection
+        let isCollectionAdmin = false;
+        try {
+          const adminRef = doc(db, 'admins', user.email!);
+          const adminDoc = await getDoc(adminRef);
+          isCollectionAdmin = adminDoc.exists();
+        } catch (err) {
+          console.log("Not an explicit admin or permission denied, checking fallback...");
+        }
         
-        if (!userDoc.exists()) {
-          await setDoc(userRef, {
-            displayName: user.displayName,
-            email: user.email,
-            role: user.email === "outgame954@gmail.com" ? 'admin' : 'client'
-          });
-          setIsAdmin(user.email === "outgame954@gmail.com");
-        } else {
-          setIsAdmin(userDoc.data()?.role === 'admin' || user.email === "outgame954@gmail.com");
+        const isEmailAdmin = user.email === "outgame954@gmail.com";
+        const isUidAdmin = user.uid === "uVa43jYv4IUCt1XRsSO8inSrtiA2";
+        setIsAdmin(isEmailAdmin || isCollectionAdmin || isUidAdmin);
+
+        // Update user profile
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          const userDoc = await getDoc(userRef);
+          if (!userDoc.exists()) {
+            await setDoc(userRef, {
+              displayName: user.displayName,
+              email: user.email,
+              role: (isEmailAdmin || isCollectionAdmin || isUidAdmin) ? 'admin' : 'client'
+            });
+          }
+        } catch (err) {
+          console.error("Error syncing user profile:", err);
         }
       } else {
         setIsAdmin(false);
@@ -47,7 +61,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async () => {
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    // Prompt the user to select an account even if they are already signed in
+    provider.setCustomParameters({ prompt: 'select_account' });
+    
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err: any) {
+      console.error("Authentication Error:", err);
+      if (err.code === 'auth/popup-blocked') {
+        alert("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.");
+      } else if (err.code === 'auth/cancelled-by-user') {
+        // Silently handle user cancellation
+      } else {
+        alert(`Sign-in failed: ${err.message}. If you're on a mobile device or iframe, try opening the app in a new tab.`);
+      }
+    }
   };
 
   const logout = async () => {
