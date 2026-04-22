@@ -1,0 +1,133 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: menu
+// Document ID: auto-generated
+// Fields:
+//   - name: string (required)
+//   - price: number (required, positive)
+//   - description: string (optional)
+//   - category: string (required, enum: "Main", "Side", "Drink", "Dessert")
+//   - imageUrl: string (optional, URL)
+//   - available: boolean (required)
+//
+// Collection: bookings
+// Document ID: auto-generated
+// Fields:
+//   - userId: string (required, author UID)
+//   - userName: string (required)
+//   - userEmail: string (required)
+//   - date: timestamp (required)
+//   - location: string (required)
+//   - status: string (required, enum: "pending", "confirmed", "cancelled")
+//   - createdAt: timestamp (required)
+//
+// Collection: location
+// Document ID: current
+// Fields:
+//   - latitude: number (required)
+//   - longitude: number (required)
+//   - address: string (required)
+//   - updatedAt: timestamp (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "outgame954@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidMenuItem(data) {
+      return hasRequiredFields(['name', 'price', 'category', 'available']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.price is number && data.price >= 0 &&
+             data.category in ['Main', 'Drink', 'Sauce', 'Appetizer', 'Chips'] &&
+             (!('description' in data) || (data.description is string && data.description.size() < 500)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() < 1000));
+    }
+
+    function isValidBooking(data) {
+      return hasRequiredFields(['firstName', 'lastName', 'phone', 'userEmail', 'date', 'location', 'status', 'createdAt']) &&
+             data.firstName is string && data.firstName.size() > 0 &&
+             data.lastName is string && data.lastName.size() > 0 &&
+             data.phone is string && data.phone.size() > 5 &&
+             isValidEmail(data.userEmail) &&
+             data.date is timestamp &&
+             data.location is string && data.location.size() > 0 &&
+             data.status in ['pending', 'confirmed', 'cancelled'] &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidLocation(data) {
+      return hasRequiredFields(['latitude', 'longitude', 'address', 'updatedAt']) &&
+             data.latitude is number && data.latitude >= -90 && data.latitude <= 90 &&
+             data.longitude is number && data.longitude >= -180 && data.longitude <= 180 &&
+             data.address is string && data.address.size() > 0 && data.address.size() < 300 &&
+             data.updatedAt is timestamp;
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId) && hasOnlyAllowedFields(['role', 'displayName', 'email']) && 
+                            (!('role' in request.resource.data) || request.resource.data.role == 'client' || isAdmin());
+    }
+
+    match /menu/{itemId} {
+      allow read: if true; // Publicly viewable menu
+      allow create, update: if isAdmin() && isValidMenuItem(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isValidBooking(request.resource.data);
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && 
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+                       request.resource.data.status == 'cancelled');
+      allow delete: if isAdmin();
+    }
+
+    match /location/{docId} {
+      allow read: if true; // Publicly trackable truck
+      allow write: if isAdmin() && isValidLocation(request.resource.data);
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "A food item on the truck's menu",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "available": { "type": "boolean" }
+      },
+      "required": ["name", "price", "category"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "A catering or event booking request",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "location": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "date", "location", "status"]
+    },
+    "TruckLocation": {
+      "title": "TruckLocation",
+      "description": "Real-time location of the food truck",
+      "type": "object",
+      "properties": {
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "address": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["latitude", "longitude", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/menu": {
+      "schema": "MenuItem",
+      "description": "The current food menu"
+    },
+    "/bookings": {
+      "schema": "Booking",
+      "description": "Event booking requests"
+    },
+    "/location/current": {
+      "schema": "TruckLocation",
+      "description": "The current live location of the truck"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-primary: #FF6B35;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #2EC4B6;
+  --color-secondary-foreground: #FFFFFF;
+  --color-accent: #FF9F1C;
+  --color-bg: #FFF9F2;
+  --color-text: #1D1D1D;
+  
+  --radius-card: 24px;
+}
+
+@layer base {
+  body {
+    @apply bg-bg text-text font-sans antialiased;
+  }
+}
+
+@layer components {
+  .vibrant-card {
+    @apply bg-white rounded-card shadow-[0_8px_24px_rgba(0,0,0,0.04)] transition-all;
+  }
+  
+  .vibrant-button {
+    @apply rounded-[20px] font-bold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50;
+  }
+
+  .map-dots {
+    background-image: radial-gradient(circle at 50% 50%, #ffffff 2px, transparent 2px);
+    background-size: 40px 40px;
+    background-color: #B2DFDB;
+  }
+}

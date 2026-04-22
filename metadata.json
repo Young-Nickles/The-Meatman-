@@ -1,0 +1,6 @@
+{
+  "name": "MEAT MAN",
+  "description": "Book and track your favorite local food truck, view the current menu, and stay updated on its location.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}
