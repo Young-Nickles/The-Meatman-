@@ -25,11 +25,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Check if user is in the admins collection
         let isCollectionAdmin = false;
         try {
-          const adminRef = doc(db, 'admins', user.email!);
-          const adminDoc = await getDoc(adminRef);
-          isCollectionAdmin = adminDoc.exists();
-        } catch (err) {
-          console.log("Not an explicit admin or permission denied, checking fallback...");
+          if (user.email) {
+            const adminRef = doc(db, 'admins', user.email);
+            const adminDoc = await getDoc(adminRef);
+            isCollectionAdmin = adminDoc.exists();
+          }
+        } catch (err: any) {
+          if (err.code === 'unavailable' || err.message.includes('offline')) {
+            console.warn("Firestore is offline, skipping admin collection check.");
+          } else {
+            console.log("Not an explicit admin or permission denied:", err.message);
+          }
         }
         
         const isEmailAdmin = user.email === "outgame954@gmail.com";
@@ -47,8 +53,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               role: (isEmailAdmin || isCollectionAdmin || isUidAdmin) ? 'admin' : 'client'
             });
           }
-        } catch (err) {
-          console.error("Error syncing user profile:", err);
+        } catch (err: any) {
+          if (err.code === 'unavailable' || err.message.includes('offline')) {
+            console.warn("Firestore is offline, profile sync skipped.");
+          } else {
+            console.error("Error syncing user profile:", err);
+          }
         }
       } else {
         setIsAdmin(false);

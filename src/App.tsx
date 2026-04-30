@@ -14,19 +14,23 @@ import {
   Trash2,
   CheckCircle,
   Clock3,
+  Edit3,
   AlertCircle,
   Star,
   Send,
   Phone,
   Mail,
   Lock,
-  Globe
+  Globe,
+  UploadCloud,
+  Image as ImageIcon
 } from 'lucide-react';
 import { 
   collection, 
   onSnapshot, 
   query, 
   orderBy, 
+  where,
   addDoc, 
   serverTimestamp,
   doc,
@@ -40,6 +44,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { OperationType, handleFirestoreError } from './firestore-utils';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
+import { storage } from './firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // --- Types ---
 
@@ -67,8 +73,8 @@ interface Booking {
 }
 
 interface TruckLocation {
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
   address: string;
   updatedAt: any;
   isPrivate?: boolean;
@@ -81,6 +87,13 @@ interface Review {
   userName: string;
   rating: number;
   text: string;
+  createdAt: any;
+}
+
+interface GalleryImage {
+  id: string;
+  url: string;
+  caption?: string;
   createdAt: any;
 }
 
@@ -123,7 +136,7 @@ const Navbar = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: 
             </div>
           </div>
           <div className="flex items-center gap-4">
-            {user ? (
+            {user && (
               <div className="flex items-center gap-4">
                 <div className="text-right hidden md:block">
                   <p className="text-sm font-bold text-text">{user.displayName}</p>
@@ -139,13 +152,6 @@ const Navbar = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: 
                   <LogOut size={20} />
                 </button>
               </div>
-            ) : (
-              <button
-                onClick={signIn}
-                className="vibrant-button px-6 py-2.5 bg-text text-white text-sm"
-              >
-                Sign In
-              </button>
             )}
           </div>
         </div>
@@ -229,9 +235,12 @@ const ReviewsView = () => {
 
   useEffect(() => {
     const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, (snap) => {
-      setReviews(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Review)));
-    });
+    const unsub = onSnapshot(q, 
+      (snap) => {
+        setReviews(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Review)));
+      },
+      (err) => handleFirestoreError(err, OperationType.GET, 'reviews')
+    );
     return () => unsub();
   }, []);
 
@@ -408,10 +417,13 @@ const TrackView = ({ setActiveTab }: { setActiveTab?: (tab: string) => void }) =
       (err) => handleFirestoreError(err, OperationType.GET, 'location/current')
     );
 
-    const unsubMenu = onSnapshot(query(collection(db, 'menu')), (snap) => {
-      const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MenuItem));
-      setFeaturedItems(items.filter(i => i.available).slice(0, 3));
-    });
+    const unsubMenu = onSnapshot(query(collection(db, 'menu')), 
+      (snap) => {
+        const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MenuItem));
+        setFeaturedItems(items.filter(i => i.available).slice(0, 3));
+      },
+      (err) => handleFirestoreError(err, OperationType.GET, 'menu')
+    );
 
     return () => {
       unsubLoc();
@@ -423,44 +435,35 @@ const TrackView = ({ setActiveTab }: { setActiveTab?: (tab: string) => void }) =
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
       <div className="space-y-6">
         <div className="vibrant-card h-[500px] border-4 border-white relative overflow-hidden flex flex-col">
-          <div className="flex-1 map-dots relative">
+          <div className="flex-1 relative overflow-hidden bg-slate-100">
+             {location ? (
+               <iframe
+                 title="Food Truck Location"
+                 width="100%"
+                 height="100%"
+                 frameBorder="0"
+                 scrolling="no"
+                 marginHeight={0}
+                 marginWidth={0}
+                 src={`https://maps.google.com/maps?q=${encodeURIComponent(location.address)}&z=15&output=embed`}
+                 className="grayscale-[0.2] contrast-[1.1]"
+               />
+             ) : (
+               <div className="w-full h-full flex items-center justify-center bg-slate-50 map-dots">
+                 <div className="text-center">
+                    <MapPin size={48} className="mx-auto text-primary/20 animate-bounce" />
+                    <p className="text-text/30 font-black uppercase tracking-widest mt-4">Calibrating Satellite...</p>
+                 </div>
+               </div>
+             )}
+
              <motion.div 
                initial={{ y: 20 }}
                animate={{ y: 0 }}
-               className="absolute top-[20%] left-[10%] bg-secondary px-5 py-2.5 rounded-xl text-white font-bold text-sm shadow-xl"
+               className="absolute top-4 left-4 bg-secondary px-5 py-2.5 rounded-xl text-white font-bold text-sm shadow-xl z-10"
              >
-                Coming Soon: Downtown Plaza
+                {location?.isPrivate ? "Private Event" : "Active Location"}
              </motion.div>
-
-             <motion.div 
-               animate={{ scale: [1, 1.05, 1] }}
-               transition={{ repeat: Infinity, duration: 2 }}
-               className={cn(
-                 "absolute top-[45%] left-[55%] text-white px-6 py-3 rounded-full font-bold shadow-2xl flex items-center gap-2 transition-colors",
-                 location?.isPrivate ? "bg-text" : "bg-primary"
-               )}
-             >
-               {location?.isPrivate ? (
-                 <><Lock size={18} /> Private Event</>
-               ) : (
-                 <><Utensils size={18} /> Hot & Ready!</>
-               )}
-             </motion.div>
-             
-             {location?.isPrivate && location.inviteLink && (
-               <motion.div 
-                 initial={{ opacity: 0, scale: 0.9 }}
-                 animate={{ opacity: 1, scale: 1 }}
-                 className="absolute top-[55%] left-[55%] -ml-10"
-               >
-                 <button 
-                   onClick={() => window.open(location.inviteLink)}
-                   className="bg-white/90 backdrop-blur-md text-text px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-2 hover:bg-white transition-all transform hover:-translate-y-1"
-                 >
-                   < Globe size={12} /> View Invite
-                 </button>
-               </motion.div>
-             )}
           </div>
           
           <div className="p-6 bg-white flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -565,11 +568,15 @@ const MenuView = () => {
   const [items, setItems] = useState<MenuItem[]>([]);
   const { isAdmin } = useAuth();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'menu')), (snap) => {
-      setItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MenuItem)));
-    });
+    const unsub = onSnapshot(query(collection(db, 'menu')), 
+      (snap) => {
+        setItems(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MenuItem)));
+      },
+      (err) => handleFirestoreError(err, OperationType.GET, 'menu')
+    );
     return () => unsub();
   }, []);
 
@@ -592,6 +599,46 @@ const MenuView = () => {
   };
 
   const categories = ["Main", "Drink", "Sauce", "Appetizer", "Chips"];
+
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  const handleImageUpload = async (itemId: string, file: File) => {
+    setUploadingId(itemId);
+    try {
+      const storageRef = ref(storage, `menu/${itemId}_${Date.now()}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      await updateDoc(doc(db, 'menu', itemId), { imageUrl: url });
+    } catch (err) {
+      console.error("Error uploading image:", err);
+      handleFirestoreError(err, OperationType.WRITE, `menu/${itemId}/imageUrl`);
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  const handleEditMenuItem = (item: MenuItem) => {
+    setEditingItem(item);
+  };
+
+  const updateMenuItem = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    const formData = new FormData(e.currentTarget);
+    try {
+      await updateDoc(doc(db, 'menu', editingItem.id), {
+        name: formData.get('name'),
+        price: parseFloat(formData.get('price') as string),
+        category: formData.get('category'),
+        description: formData.get('description'),
+        imageUrl: formData.get('imageUrl'),
+        available: editingItem.available
+      });
+      setEditingItem(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `menu/${editingItem.id}`);
+    }
+  };
 
   return (
     <div className="space-y-12">
@@ -642,22 +689,52 @@ const MenuView = () => {
                         <h4 className="font-black text-text text-lg mb-1">{item.name}</h4>
                         <p className="text-sm text-text/40 font-medium line-clamp-2 mb-4">{item.description}</p>
                         {isAdmin && (
-                          <div className="flex justify-end gap-2 pt-4 border-t border-slate-50">
-                            <button 
-                              onClick={() => toggleAvailability(item.id, item.available)}
-                              className={cn(
-                                "p-2 rounded-xl transition-colors",
-                                item.available ? "bg-slate-100 text-slate-600" : "bg-green-100 text-green-600"
-                              )}
-                            >
-                              <CheckCircle size={18} />
-                            </button>
-                            <button 
-                              onClick={() => deleteItem(item.id)}
-                              className="p-2 bg-red-50 text-red-600 rounded-xl"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                          <div className="flex justify-between items-center pt-4 border-t border-slate-50">
+                            <div className="flex gap-2">
+                              <label className={cn(
+                                "cursor-pointer p-2 rounded-xl transition-all flex items-center justify-center",
+                                uploadingId === item.id ? "bg-slate-100 text-slate-400 animate-pulse" : "bg-primary/10 text-primary hover:bg-primary/20"
+                              )} title="Upload Image">
+                                {uploadingId === item.id ? (
+                                  <Clock3 size={18} className="animate-spin" />
+                                ) : (
+                                  <UploadCloud size={18} />
+                                )}
+                                <input 
+                                  type="file" 
+                                  className="hidden" 
+                                  accept="image/*"
+                                  disabled={uploadingId === item.id}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleImageUpload(item.id, file);
+                                  }} 
+                                />
+                              </label>
+                              <button 
+                                onClick={() => handleEditMenuItem(item)}
+                                className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
+                              >
+                                <Edit3 size={18} />
+                              </button>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => toggleAvailability(item.id, item.available)}
+                                className={cn(
+                                  "p-2 rounded-xl transition-colors",
+                                  item.available ? "bg-slate-100 text-slate-600" : "bg-green-100 text-green-600"
+                                )}
+                              >
+                                <CheckCircle size={18} />
+                              </button>
+                              <button 
+                                onClick={() => deleteItem(item.id)}
+                                className="p-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -765,53 +842,293 @@ const MenuView = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Edit Item Modal */}
+      <AnimatePresence>
+        {editingItem && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingItem(null)}
+              className="absolute inset-0 bg-secondary/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
+            >
+              <form onSubmit={updateMenuItem} className="p-6 space-y-4">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-xl font-bold">Edit Menu Item</h3>
+                  <button type="button" onClick={() => setEditingItem(null)} className="text-slate-400 hover:text-slate-600">
+                    <X size={24} />
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Name</label>
+                    <input required name="name" defaultValue={editingItem.name} className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Price ($)</label>
+                      <input required name="price" type="number" step="0.01" defaultValue={editingItem.price} className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category</label>
+                      <select name="category" defaultValue={editingItem.category} className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm">
+                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Image URL</label>
+                    <input name="imageUrl" defaultValue={editingItem.imageUrl} placeholder="HTTPS link to image" className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Description</label>
+                    <textarea name="description" defaultValue={editingItem.description} className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none h-24 text-sm" />
+                  </div>
+                </div>
+                <button type="submit" className="w-full py-3 bg-secondary text-white font-bold rounded-xl mt-4">
+                  Save Changes
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
 
 const AboutView = () => {
+  const { isAdmin } = useAuth();
+  const [gallery, setGallery] = useState<GalleryImage[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [isEditingStory, setIsEditingStory] = useState(false);
+  const [story, setStory] = useState({
+    title: 'THE LEGEND OF MEAT MAN',
+    text: "MEAT MAN isn't just a food truck; it's a mobile smokehouse dedicated to the ancient art of live-fire BBQ. We started with a single offset smoker and a obsession with finding the perfect bark. Today, we travel the streets, bringing the weight of low-and-slow tradition to the modern concrete jungle.",
+    image: 'https://images.unsplash.com/photo-1544077960-604201fe74bc?auto=format&fit=crop&q=80&w=1000'
+  });
+
+  useEffect(() => {
+    const q = query(collection(db, 'gallery'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setGallery(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as GalleryImage)));
+    });
+
+    const unsubStory = onSnapshot(doc(db, 'settings', 'about'), (doc) => {
+      if (doc.exists()) {
+        setStory(prev => ({ ...prev, ...doc.data() }));
+      }
+    });
+
+    return () => {
+      unsub();
+      unsubStory();
+    };
+  }, []);
+
+  const updateStory = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    try {
+      await setDoc(doc(db, 'settings', 'about'), {
+        title: formData.get('title'),
+        text: formData.get('text'),
+        image: formData.get('image')
+      });
+      setIsEditingStory(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/about');
+    }
+  };
+
+  const handleGalleryUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const storageRef = ref(storage, `gallery/${Date.now()}_${file.name}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      await addDoc(collection(db, 'gallery'), {
+        url,
+        createdAt: serverTimestamp()
+      });
+    } catch (err) {
+       console.error("Gallery upload error:", err);
+       alert("Error uploading image");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const deleteGalleryImage = async (id: string) => {
+    if (!confirm("Delete this image?")) return;
+    try {
+      await deleteDoc(doc(db, 'gallery', id));
+    } catch (err) {
+      console.error("Delete error:", err);
+    }
+  };
+
   return (
-    <div className="space-y-12">
-      {/* ... Hero and Stats ... */}
-      <section className="vibrant-card p-10 bg-primary text-white border-none overflow-hidden relative">
-        <div className="relative z-10 max-w-3xl">
-          <h2 className="text-5xl font-black mb-6 tracking-tighter uppercase">THE MEAT MAN STORY</h2>
-          <p className="text-xl font-bold opacity-90 leading-relaxed mb-6">
-            We don't just sell BBQ; we sell the soul of the smokehouse. MEAT MAN started with a simple mission: 
-            to bring the heaviest cuts and the honest flavors of low-and-slow cooking to every corner of the city.
+    <div className="space-y-12 pb-20">
+      {/* Story Section */}
+      <section className="vibrant-card overflow-hidden border-none grid grid-cols-1 lg:grid-cols-2 bg-text text-white relative">
+        {isAdmin && (
+          <button 
+            onClick={() => setIsEditingStory(true)}
+            className="absolute top-4 right-4 z-20 bg-white/10 hover:bg-white/20 p-3 rounded-2xl text-white backdrop-blur-md transition-all"
+          >
+            <Edit3 size={20} />
+          </button>
+        )}
+        <div className="p-10 lg:p-16 flex flex-col justify-center">
+          <div className="inline-block bg-primary text-white px-4 py-1 rounded-xl text-xs font-black uppercase tracking-widest mb-6">Established 2024</div>
+          <h2 className="text-5xl lg:text-7xl font-black mb-8 tracking-tighter leading-[0.9] uppercase">{story.title}</h2>
+          <p className="text-lg text-white/60 font-medium leading-relaxed mb-8">
+            {story.text}
           </p>
-          <div className="flex flex-wrap gap-4">
-             <div className="bg-white/20 backdrop-blur-md px-4 py-2 rounded-xl text-sm font-black">EST. 2024</div>
-             <div className="bg-white/20 backdrop-blur-md px-4 py-2 rounded-xl text-sm font-black">100% PURE WOOD SMOKED</div>
-             <div className="bg-white/20 backdrop-blur-md px-4 py-2 rounded-xl text-sm font-black">LOCAL INGREDIENTS</div>
+          <div className="space-y-4">
+             <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-primary"><CheckCircle size={20} /></div>
+                <span className="font-bold text-white/80">12-Hour Oak Smoked Brisket</span>
+             </div>
+             <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-primary"><CheckCircle size={20} /></div>
+                <span className="font-bold text-white/80">Hand-Crafted Seasonal Rubs</span>
+             </div>
+             <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-primary"><CheckCircle size={20} /></div>
+                <span className="font-bold text-white/80">Family-Secret Sauces</span>
+             </div>
           </div>
         </div>
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl opacity-50" />
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full -ml-12 -mb-12 blur-2xl opacity-30" />
+        <div className="h-[400px] lg:h-full bg-slate-200 relative overflow-hidden">
+           <img 
+             src={story.image} 
+             alt="BBQ Platter" 
+             className="w-full h-full object-cover grayscale-[0.3] hover:grayscale-0 transition-all duration-700" 
+             referrerPolicy="no-referrer"
+           />
+           <div className="absolute inset-0 bg-gradient-to-r from-text to-transparent lg:hidden" />
+        </div>
       </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="vibrant-card p-8 flex flex-col items-center text-center">
-          <div className="w-16 h-16 bg-secondary/10 text-secondary rounded-2xl flex items-center justify-center mb-6">
-            <Utensils size={40} />
+      {/* Story Edit Modal */}
+      <AnimatePresence>
+        {isEditingStory && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsEditingStory(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden p-8">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-3xl font-black uppercase tracking-tighter">Edit About Us</h3>
+                <button onClick={() => setIsEditingStory(false)} className="text-slate-400 hover:text-slate-600"><X size={28} /></button>
+              </div>
+              <form onSubmit={updateStory} className="space-y-6">
+                <div>
+                   <label className="block text-[10px] font-black uppercase text-text/40 tracking-widest mb-2">Display Title</label>
+                   <input name="title" defaultValue={story.title} className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-primary outline-none font-bold uppercase tracking-tight" />
+                </div>
+                <div>
+                   <label className="block text-[10px] font-black uppercase text-text/40 tracking-widest mb-2">The Story</label>
+                   <textarea name="text" defaultValue={story.text} className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-primary outline-none font-medium h-48 leading-relaxed" />
+                </div>
+                <div>
+                   <label className="block text-[10px] font-black uppercase text-text/40 tracking-widest mb-2">Hero Image URL</label>
+                   <input name="image" defaultValue={story.image} className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-primary outline-none font-bold" />
+                </div>
+                <button type="submit" className="vibrant-button w-full py-4 bg-primary text-white font-black uppercase tracking-widest">
+                  Save Story
+                </button>
+              </form>
+            </motion.div>
           </div>
-          <h3 className="text-2xl font-black mb-4">OUR PROMISE</h3>
-          <p className="text-text/60 font-medium leading-relaxed">
-            Every brisket is seasoned by hand and smoked for 12+ hours using local oak. No shortcuts. No gas. 
-            Just fire, smoke, and patience. We believe that the best MEAT takes time, and we're happy to wait for it.
-          </p>
-        </div>
-        <div className="vibrant-card p-8 flex flex-col items-center text-center">
-          <div className="w-16 h-16 bg-accent/10 text-accent rounded-2xl flex items-center justify-center mb-6">
-            <MapPin size={40} />
+        )}
+      </AnimatePresence>
+
+      {/* Gallery Section */}
+      <section className="space-y-8">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <h2 className="text-4xl font-black text-text tracking-tighter uppercase">THE SMOKE GALLERY</h2>
+            <p className="text-text/50 font-medium">RECENT SNAPS FROM THE PIT AND THE STREETS.</p>
           </div>
-          <h3 className="text-2xl font-black mb-4">ON THE MOVE</h3>
-          <p className="text-text/60 font-medium leading-relaxed">
-            Good BBQ shouldn't be a destination; it should be an experience that finds you. Our mobile smokehouse 
-            allows us to keep the fire burning wherever the people are. From festivals to your backyard, 
-            MEAT MAN is always on the move.
-          </p>
+          {isAdmin && (
+            <label className={cn(
+              "vibrant-button px-6 py-3 bg-primary text-white cursor-pointer flex items-center gap-2 shadow-lg shadow-primary/20 transition-all",
+              uploading && "opacity-50 animate-pulse pointer-events-none"
+            )}>
+              {uploading ? <Clock3 className="animate-spin" /> : <UploadCloud />}
+              <span>{uploading ? 'UPLOADING...' : 'ADD PHOTO'}</span>
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleGalleryUpload(file);
+                }}
+              />
+            </label>
+          )}
         </div>
+
+        <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6">
+          {gallery.map((img) => (
+            <motion.div 
+              layout
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              key={img.id} 
+              className="relative group rounded-3xl overflow-hidden border-4 border-white shadow-xl hover:shadow-2xl transition-all"
+            >
+              <img 
+                src={img.url} 
+                alt="Meat Man Gallery" 
+                className="w-full object-cover hover:scale-110 transition-transform duration-700" 
+                referrerPolicy="no-referrer"
+              />
+              {isAdmin && (
+                <button 
+                  onClick={() => deleteGalleryImage(img.id)}
+                  className="absolute top-4 right-4 p-2 bg-red-600 text-white rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={18} />
+                </button>
+              )}
+            </motion.div>
+          ))}
+          {gallery.length === 0 && !uploading && (
+             <div className="vibrant-card py-20 bg-slate-50 border-none flex flex-col items-center justify-center text-text/20 col-span-full">
+                <ImageIcon size={48} className="mb-4" />
+                <p className="font-black uppercase tracking-widest text-xs">Gallery is heating up...</p>
+             </div>
+          )}
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {[
+          { icon: Utensils, title: 'OUR PROMISE', text: "Every brisket is seasoned by hand and smoked for 12+ hours using local oak. No shortcuts. No gas. Just fire, smoke, and patience.", color: 'text-primary' },
+          { icon: MapPin, title: 'ON THE MOVE', text: "Good BBQ shouldn't be a destination; it should be an experience that finds you. We keep the fire burning wherever the people are.", color: 'text-secondary' },
+          { icon: Star, title: 'AUTHENTICITY', text: "We honor the tradition of the craft, sourcing only the finest local wood and ingredients to ensure every bite is a statement.", color: 'text-accent' }
+        ].map((item, i) => (
+          <div key={i} className="vibrant-card p-10 flex flex-col items-center text-center group hover:bg-slate-50 transition-colors">
+            <div className={cn("w-20 h-20 rounded-[2.5rem] bg-white shadow-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform", item.color)}>
+              <item.icon size={32} />
+            </div>
+            <h3 className="text-2xl font-black mb-4 uppercase tracking-tighter">{item.title}</h3>
+            <p className="text-text/50 font-medium leading-relaxed italic">
+              "{item.text}"
+            </p>
+          </div>
+        ))}
       </div>
 
       <div className="vibrant-card p-12 bg-slate-900 text-white border-none text-center">
@@ -858,14 +1175,17 @@ const BookView = () => {
     const q = isAdmin 
       ? query(collection(db, 'bookings'), orderBy('date', 'asc'))
       : user 
-        ? query(collection(db, 'bookings'), orderBy('createdAt', 'desc'))
+        ? query(collection(db, 'bookings'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'))
         : null;
     
     if (!q) return;
 
-    const unsub = onSnapshot(q, (snap) => {
-      setBookings(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking)));
-    });
+    const unsub = onSnapshot(q, 
+      (snap) => {
+        setBookings(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking)));
+      },
+      (err) => handleFirestoreError(err, OperationType.GET, 'bookings')
+    );
     return () => unsub();
   }, [user, isAdmin]);
 
@@ -1162,9 +1482,12 @@ const AdminView = ({ setActiveTab }: { setActiveTab: (tab: string) => void }) =>
   const { user: currentUser } = useAuth();
 
   useEffect(() => {
-    const unsubLoc = onSnapshot(doc(db, 'location', 'current'), (doc) => {
-      if (doc.exists()) setLocation(doc.data() as TruckLocation);
-    });
+    const unsubLoc = onSnapshot(doc(db, 'location', 'current'), 
+      (doc) => {
+        if (doc.exists()) setLocation(doc.data() as TruckLocation);
+      },
+      (err) => handleFirestoreError(err, OperationType.GET, 'location/current')
+    );
 
     const unsubAdmins = onSnapshot(collection(db, 'admins'), 
       (snap) => {
@@ -1190,18 +1513,53 @@ const AdminView = ({ setActiveTab }: { setActiveTab: (tab: string) => void }) =>
     try {
       await setDoc(doc(db, 'location', 'current'), {
         address: formData.get('address'),
-        latitude: parseFloat(formData.get('latitude') as string),
-        longitude: parseFloat(formData.get('longitude') as string),
         isPrivate: formData.get('isPrivate') === 'on',
         inviteLink: formData.get('inviteLink'),
         updatedAt: serverTimestamp()
-      });
+      }, { merge: true });
       alert('Location updated successfully!');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'location/current');
     } finally {
       setUpdating(false);
     }
+  };
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setUpdating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          // Attempt to reverse geocode simple coordinates using an open API or just update coordinates
+          // For now, we'll just update coordinates and prompt for address
+          const newAddress = prompt("Coordinates detected. Enter the address for this location:", location?.address || "");
+          
+          await setDoc(doc(db, 'location', 'current'), {
+            address: newAddress || location?.address || "Current Location",
+            latitude,
+            longitude,
+            isPrivate: location?.isPrivate || false,
+            inviteLink: location?.inviteLink || "",
+            updatedAt: serverTimestamp()
+          });
+          alert("Location updated to your current GPS position!");
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, 'location/current');
+        } finally {
+          setUpdating(false);
+        }
+      },
+      (error) => {
+        alert("Error getting location: " + error.message);
+        setUpdating(false);
+      }
+    );
   };
 
   const addAdmin = async (e: React.FormEvent) => {
@@ -1235,21 +1593,20 @@ const AdminView = ({ setActiveTab }: { setActiveTab: (tab: string) => void }) =>
     <div className="space-y-12">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
         <div className="vibrant-card p-8">
-          <h2 className="text-3xl font-black mb-6 uppercase tracking-tighter">Update Truck Location</h2>
+          <div className="flex justify-between items-start mb-6">
+            <h2 className="text-3xl font-black uppercase tracking-tighter">Update Truck Location</h2>
+            <button 
+              onClick={useCurrentLocation}
+              disabled={updating}
+              className="flex items-center gap-2 px-4 py-2 bg-text text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary transition-colors disabled:opacity-50"
+            >
+              <MapPin size={16} /> Use My GPS
+            </button>
+          </div>
           <form onSubmit={handleUpdateLocation} className="space-y-6">
             <div>
               <label className="block text-xs font-black uppercase text-text/40 tracking-widest mb-2">Current Address</label>
               <input name="address" defaultValue={location?.address} required className="w-full px-4 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-primary outline-none font-bold" />
-            </div>
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <label className="block text-xs font-black uppercase text-text/40 tracking-widest mb-2">Latitude</label>
-                <input name="latitude" type="number" step="any" defaultValue={location?.latitude} required className="w-full px-4 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-primary outline-none font-bold" />
-              </div>
-              <div>
-                <label className="block text-xs font-black uppercase text-text/40 tracking-widest mb-2">Longitude</label>
-                <input name="longitude" type="number" step="any" defaultValue={location?.longitude} required className="w-full px-4 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-primary outline-none font-bold" />
-              </div>
             </div>
 
             <div className="bg-slate-900 p-6 rounded-3xl space-y-6 text-white border-none">

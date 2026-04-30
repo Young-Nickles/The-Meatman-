@@ -1,38 +1,3 @@
-// ===============================================================
-// Assumed Data Model
-// ===============================================================
-//
-// Collection: menu
-// Document ID: auto-generated
-// Fields:
-//   - name: string (required)
-//   - price: number (required, positive)
-//   - description: string (optional)
-//   - category: string (required, enum: "Main", "Side", "Drink", "Dessert")
-//   - imageUrl: string (optional, URL)
-//   - available: boolean (required)
-//
-// Collection: bookings
-// Document ID: auto-generated
-// Fields:
-//   - userId: string (required, author UID)
-//   - userName: string (required)
-//   - userEmail: string (required)
-//   - date: timestamp (required)
-//   - location: string (required)
-//   - status: string (required, enum: "pending", "confirmed", "cancelled")
-//   - createdAt: timestamp (required)
-//
-// Collection: location
-// Document ID: current
-// Fields:
-//   - latitude: number (required)
-//   - longitude: number (required)
-//   - address: string (required)
-//   - updatedAt: timestamp (required)
-//
-// ===============================================================
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -45,30 +10,39 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isVerified() {
+      return isAuthenticated() && (
+        request.auth.token.email_verified == true || 
+        request.auth.token.firebase.sign_in_provider == 'google.com'
+      );
+    }
+
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isAdmin() {
+    // super-admins bypass exists() checks to prevent list-query locks
+    function isSuperAdmin() {
       return isAuthenticated() && (
         request.auth.uid == "uVa43jYv4IUCt1XRsSO8inSrtiA2" ||
-        (request.auth.token.email != null && (
-          request.auth.token.email == "outgame954@gmail.com" ||
-          exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
-        ))
+        (request.auth.token.email != null && request.auth.token.email == "outgame954@gmail.com")
       );
     }
 
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    function isAdmin() {
+      return isSuperAdmin() || (
+        isAuthenticated() && 
+        request.auth.token.email != null && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email))
+      );
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
+    function incoming() {
+      return request.resource.data;
     }
 
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
+    function existing() {
+      return resource.data;
     }
 
     // ===============================================================
@@ -76,40 +50,41 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidMenuItem(data) {
-      return hasRequiredFields(['name', 'price', 'category', 'available']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.price is number && data.price >= 0 &&
-             data.category in ['Main', 'Drink', 'Sauce', 'Appetizer', 'Chips'] &&
-             (!('description' in data) || (data.description is string && data.description.size() < 500)) &&
-             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() < 1000));
+      return data.keys().hasAll(['name', 'price', 'category', 'available']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.price is number &&
+             data.category is string &&
+             data.available is bool &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() < 2000)) &&
+             (!('description' in data) || (data.description is string && data.description.size() < 1000));
     }
 
     function isValidBooking(data) {
-      return hasRequiredFields(['firstName', 'lastName', 'phone', 'userEmail', 'date', 'location', 'status', 'createdAt']) &&
-             data.firstName is string && data.firstName.size() > 0 &&
-             data.lastName is string && data.lastName.size() > 0 &&
-             data.phone is string && data.phone.size() > 5 &&
-             isValidEmail(data.userEmail) &&
-             data.date is timestamp &&
-             data.location is string && data.location.size() > 0 &&
-             data.status in ['pending', 'confirmed', 'cancelled'] &&
-             data.createdAt is timestamp;
+      return data.keys().hasAll(['userId', 'firstName', 'lastName', 'phone', 'userEmail', 'date', 'location', 'status', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.firstName is string &&
+             data.status == 'pending';
     }
 
     function isValidLocation(data) {
-      return hasRequiredFields(['latitude', 'longitude', 'address', 'updatedAt']) &&
-             data.latitude is number && 
-             data.longitude is number && 
-             data.address is string && data.address.size() > 0 &&
-             data.updatedAt is timestamp;
+      return data.keys().hasAll(['address', 'updatedAt']) &&
+             data.address is string &&
+             data.updatedAt is timestamp &&
+             (!('latitude' in data) || data.latitude is number) &&
+             (!('longitude' in data) || data.longitude is number);
     }
 
     function isValidReview(data) {
-      return hasRequiredFields(['userId', 'userName', 'rating', 'text', 'createdAt']) &&
+      return data.keys().hasAll(['userId', 'userName', 'rating', 'text', 'createdAt']) &&
              data.userId == request.auth.uid &&
-             data.userName is string && data.userName.size() > 0 &&
-             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
-             data.text is string && data.text.size() > 0 && data.text.size() < 2000 &&
+             data.userName is string &&
+             data.rating is number &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidGalleryImage(data) {
+      return data.keys().hasAll(['url', 'createdAt']) &&
+             data.url is string && data.url.size() < 2000 &&
              data.createdAt is timestamp;
     }
 
@@ -119,39 +94,60 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create, update: if isOwner(userId) && hasOnlyAllowedFields(['role', 'displayName', 'email']) && 
-                            (!('role' in request.resource.data) || request.resource.data.role == 'client' || isAdmin());
+      allow create, update: if isOwner(userId) && 
+                            (!('role' in incoming()) || incoming().role == 'client' || isSuperAdmin());
     }
 
     match /menu/{itemId} {
-      allow read: if true; // Publicly viewable menu
-      allow create, update: if isAdmin() && isValidMenuItem(request.resource.data);
+      allow get, list: if true;
+      allow write: if isAdmin() && isValidMenuItem(incoming());
       allow delete: if isAdmin();
     }
 
+    match /settings/{docId} {
+      allow get: if true;
+      allow list, write: if isAdmin();
+    }
+
     match /bookings/{bookingId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isValidBooking(request.resource.data);
-      allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && 
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
-                       request.resource.data.status == 'cancelled');
+      allow get, list: if isAdmin() || (isAuthenticated() && (existing().userId == request.auth.uid));
+      allow create: if isVerified() && isValidBooking(incoming());
+      allow update: if isAdmin() || (isAuthenticated() && existing().userId == request.auth.uid && 
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+                       incoming().status == 'cancelled');
       allow delete: if isAdmin();
     }
 
     match /location/{docId} {
-      allow read: if true; // Publicly trackable truck
-      allow write: if isAdmin() && isValidLocation(request.resource.data);
+      allow get, list: if true;
+      allow write: if isAdmin() && isValidLocation(incoming());
     }
 
     match /admins/{email} {
       allow get: if isAuthenticated() && request.auth.token.email == email;
-      allow list, write: if isAdmin();
+      allow list: if isAdmin();
+      allow write: if isSuperAdmin();
     }
 
     match /reviews/{reviewId} {
-      allow read: if true;
-      allow create: if isAuthenticated() && isValidReview(request.resource.data);
-      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow get, list: if true;
+      allow create: if isAuthenticated() && isValidReview(incoming());
+      allow delete: if isAdmin() || (isAuthenticated() && existing().userId == request.auth.uid);
+    }
+
+    match /gallery/{imageId} {
+      allow get, list: if true;
+      allow create: if isAdmin() && isValidGalleryImage(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -39,7 +39,41 @@
         "address": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["latitude", "longitude", "updatedAt"]
+      "required": ["address", "updatedAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["client", "admin"] }
+      },
+      "required": ["email", "role"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A customer review of the food truck",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "rating": { "type": "number" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "rating", "text"]
+    },
+    "GalleryImage": {
+      "title": "GalleryImage",
+      "description": "A photo in the truck gallery",
+      "type": "object",
+      "properties": {
+        "url": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["url"]
     }
   },
   "firestore": {
@@ -54,6 +88,26 @@
     "/location/current": {
       "schema": "TruckLocation",
       "description": "The current live location of the truck"
+    },
+    "/users": {
+      "schema": "User",
+      "description": "Registered users"
+    },
+    "/admins": {
+      "schema": "object",
+      "description": "Whitelist of admin emails"
+    },
+    "/reviews": {
+      "schema": "Review",
+      "description": "Customer reviews"
+    },
+    "/gallery": {
+      "schema": "GalleryImage",
+      "description": "Photos from the pit"
+    },
+    "/settings/about": {
+      "schema": "object",
+      "description": "Global site content including the About Us story"
     }
   }
 }
